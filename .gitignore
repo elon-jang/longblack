@@ -45,6 +45,9 @@ data/*.db
 .env
 .env.local
 
+# Claude Code local settings (contains API keys)
+.claude/settings.local.json
+
 # macOS
 .DS_Store
 
