@@ -99,28 +99,30 @@ OpenAI 사용 시:
 }
 ```
 
-## MCP Tools
+## MCP Tools (6개)
 
 | Tool | 설명 | 예시 |
 |------|------|------|
-| `save_article` | URL에서 아티클 저장 | `save_article("https://...", ["ai"], summary="...", keywords="...")` |
-| `save_pdf` | PDF 파일 저장 | `save_pdf("/path/to/doc.pdf", ["tech"])` |
-| `list_articles` | 아티클 목록 조회 (간소화) | `list_articles(category="ai", limit=20)` |
-| `search` | 시맨틱 검색 | `search("AI 트렌드", category="ai", limit=5)` |
-| `get_article` | 메타데이터 조회 (summary 또는 content_preview 포함) | `get_article("uuid-...")` |
-| `get_relevant_chunks` | RAG용 청크 검색 | `get_relevant_chunks("질문", article_id="uuid-...", limit=5)` |
-| `read_content` | 전체 본문 읽기 (summary 없을 때만) | `read_content("uuid-...", max_length=3000)` |
-| `list_categories` | 카테고리 목록 | `list_categories()` |
-| `delete_article` | 아티클 삭제 | `delete_article("uuid-...")` |
+| `save` | URL/PDF 저장 (자동 감지) | `save("https://...", ["ai"], metadata={...})` |
+| `search` | 하이브리드 검색 | `search("AI 트렌드", category="ai")` |
+| `list` | 카테고리 + 목록 조회 | `list(category="ai", limit=10)` |
+| `get` | 아티클 조회 (+ 선택적 본문) | `get("uuid-...", include_content=True)` |
+| `ask` | RAG 질문 답변 | `ask("9.81파크 비즈니스 모델은?")` |
+| `delete` | 삭제 | `delete("uuid-...")` |
 
-> **토큰 최적화**: `get_article`이 summary 또는 content_preview(500자)를 자동 포함하므로, 대부분의 경우 `read_content` 호출이 불필요합니다.
+> **연쇄 호출 최소화**: 기존 9개 → 6개 통합. 대부분 1회 호출로 완료.
 
-### RAG 워크플로우 (권장)
+### 워크플로우 예시
 ```
-1. search → 관련 아티클 찾기
-2. get_article → summary/preview 확인 (대부분 여기서 끝)
-3. get_relevant_chunks → 질문 답변용 청크 조회 (권장)
-4. read_content → 전문 필요시에만 (비권장)
+# RAG 질문 → 1회 호출
+ask("9.81파크 비즈니스 모델은?")
+
+# 목록 조회 → 1회 호출 (카테고리 + 아티클)
+list()
+
+# 상세 조회 → 1회 호출
+get(article_id)  # summary 포함
+get(article_id, include_content=True)  # 본문 필요시
 ```
 
 ## 사용 예시

@@ -33,44 +33,29 @@
 - **카테고리 필터**: 특정 카테고리 내 검색
 - **전문 검색**: SQLite FTS5 기반 키워드 검색
 
-## MCP Tools
+## MCP Tools (6개)
 
-### save_article
-URL에서 아티클을 스크랩하여 저장
+기존 9개 도구를 6개로 통합하여 연쇄 호출 최소화.
+
+### save
+URL 또는 PDF에서 아티클 저장 (자동 감지)
 ```
 Input:
-  - url: str (필수) - 아티클 URL
+  - source: str (필수) - URL 또는 파일 경로 (자동 감지)
   - categories: list[str] (필수) - 카테고리 목록
-  - summary: str (선택) - 3-5문장 요약
-  - keywords: str (선택) - 쉼표 구분 키워드
-  - insights: str (선택) - 핵심 인사이트 (줄바꿈 구분)
+  - metadata: dict (선택) - {summary, keywords, tags}
 
 Output:
   - id: str - 저장된 아티클 ID
   - title: str - 추출된 제목
   - categories: list[str]
   - content_length: int
-```
 
-### save_pdf
-PDF 파일에서 텍스트를 추출하여 저장
-```
-Input:
-  - file_path: str (필수) - PDF 파일 경로
-  - categories: list[str] (필수) - 카테고리 목록
-  - summary: str (선택) - 3-5문장 요약
-  - keywords: str (선택) - 쉼표 구분 키워드
-  - insights: str (선택) - 핵심 인사이트 (줄바꿈 구분)
-
-Output:
-  - id: str
-  - title: str
-  - categories: list[str]
-  - content_length: int
+Note: URL(http/https)과 파일 경로 자동 구분
 ```
 
 ### search
-시맨틱 검색으로 관련 아티클 조회
+하이브리드 검색 (제목 + FTS + 시맨틱)
 ```
 Input:
   - query: str (필수) - 검색 쿼리
@@ -80,34 +65,31 @@ Input:
 Output: list of
   - id: str
   - title: str
-  - score: float (0~1, 높을수록 관련성 높음)
+  - score: float (0~1)
   - author: str
-  - excerpt: str (매칭된 청크 200자)
+  - excerpt: str (200자)
 ```
 
-### list_articles
-아티클 목록 조회 (간소화된 응답)
+### list
+카테고리 + 아티클 목록 통합 조회
 ```
 Input:
   - category: str (선택) - 카테고리 필터
-  - limit: int (선택, 기본값: 20) - 최대 결과 수
-  - sort_by: str (선택, 기본값: created_at) - 정렬 기준
+  - limit: int (선택, 기본값: 10) - 최대 아티클 수
 
-Output: list of
-  - id: str
-  - title: str
-  - categories: list[str]
-  - author: str
-  - created_at: str
+Output:
+  - categories: list of {name, count}
+  - articles: list of {id, title, categories, author, created_at}
 
-Note: 토큰 최적화를 위해 summary, keywords 제외. 상세 정보는 get_article로 조회.
+Note: 한 번 호출로 카테고리와 아티클 목록 동시 조회
 ```
 
-### get_article
-아티클 메타데이터 조회 (조건부 응답으로 read_content 호출 불필요)
+### get
+아티클 조회 (메타데이터 + 선택적 본문)
 ```
 Input:
   - article_id: str (필수)
+  - include_content: bool (선택, 기본값: false)
 
 Output:
   - id, title, content_length, url, source_type
@@ -115,48 +97,27 @@ Output:
   - description, keywords, tags
   - summary: str (있을 경우)
   - content_preview: str (summary 없을 경우, 500자)
+  - content: str (include_content=true일 때만, 3000자 제한)
 
-Note: summary 또는 content_preview 중 하나가 항상 포함됨.
-      이 응답만으로 충분한 컨텍스트 제공, read_content 연쇄 호출 방지.
+Note: include_content=false가 기본값. 대부분 summary로 충분.
 ```
 
-### get_relevant_chunks
-RAG용 관련 청크 검색
+### ask
+RAG 질문 답변용 컨텍스트 조회
 ```
 Input:
-  - query: str (필수) - 질문 또는 검색 쿼리
+  - question: str (필수) - 질문
   - article_id: str (선택) - 특정 아티클로 제한
   - limit: int (선택, 기본값: 5) - 최대 청크 수
 
-Output: list of
-  - article_id: str
-  - title: str
-  - content: str (청크 내용)
-  - score: float (0~1)
-```
-
-### read_content
-아티클 전체 본문 읽기 (get_article에 summary 없을 때만 사용)
-```
-Input:
-  - article_id: str (필수)
-  - max_length: int (선택, 기본값: 3000) - 최대 길이, 0이면 전체
-
 Output:
-  - str (마크다운 포맷 본문, 메타데이터 포함)
+  - chunks: list of {article_id, title, content, score}
+  - sources: list of {id, title} (중복 제거된 출처)
 
-Note: get_article 호출 후 summary가 있으면 이 도구 호출 불필요.
+Note: search + get_relevant_chunks 통합. RAG 답변 생성에 최적화.
 ```
 
-### list_categories
-저장된 모든 카테고리와 아티클 수 조회
-```
-Output: list of
-  - name: str
-  - count: int
-```
-
-### delete_article
+### delete
 아티클 삭제
 ```
 Input:
@@ -165,6 +126,17 @@ Input:
 Output:
   - bool (성공 여부)
 ```
+
+## 도구 통합 비교
+
+| Before (9개) | After (6개) | 변경 |
+|--------------|-------------|------|
+| save_article, save_pdf | save | 통합 (자동 감지) |
+| search | search | 유지 |
+| list_articles, list_categories | list | 통합 |
+| get_article, read_content | get | 통합 (include_content 옵션) |
+| get_relevant_chunks | ask | 개선 (출처 정보 추가) |
+| delete_article | delete | 이름 변경 |
 
 ## 기술 스택
 
@@ -202,9 +174,9 @@ Output:
     "published_date": "datetime | null",
     "categories": ["string"],
     "created_at": "datetime",
-    "summary": "string | null",      # 3-5문장 요약
+    "summary": "string | null",      # 400-600자 요약
     "keywords": "string | null",     # 쉼표 구분 키워드
-    "insights": "string | null"      # 핵심 인사이트 (줄바꿈 구분)
+    "tags": "string | null"          # 태그 (쉼표 구분)
 }
 ```
 
@@ -235,36 +207,38 @@ Claude Desktop 토큰 한도(190,000) 대응을 위한 최적화 전략:
 
 ### RAG 워크플로우 (권장)
 ```
-1. search → 관련 아티클 찾기 (~3,000자)
-2. get_article → 메타데이터 + summary/preview 확인 (~1,500자)
-3. (summary로 충분하면 끝)
-4. get_relevant_chunks → 질문에 관련된 청크만 조회 (~5,000자, 권장)
-5. read_content → 전문 필요시에만 (~3,100자, 비권장)
+# 간단한 질문
+ask("9.81파크 비즈니스 모델은?")  # 원샷으로 컨텍스트 획득
+
+# 목록 조회
+list()  # 카테고리 + 아티클 목록 동시 조회
+
+# 상세 조회
+get(article_id)  # summary 포함
+get(article_id, include_content=True)  # 본문 필요시
 ```
 
-### 토큰 효율성
-| 시나리오 | 호출 | 예상 토큰 |
-|----------|------|----------|
-| 검색 + 요약 확인 | search → get_article | ~1,500 |
-| 검색 + RAG 답변 | search → get_relevant_chunks | ~2,700 |
-| 검색 + 전문 읽기 | search → get_article → read_content | ~2,500 |
+### 토큰 효율성 (Before vs After)
+| 시나리오 | Before | After |
+|----------|--------|-------|
+| RAG 질문 | search → get_relevant_chunks (2회) | ask (1회) |
+| 목록 조회 | list_categories + list_articles (2회) | list (1회) |
+| 본문 읽기 | get_article → read_content (2회) | get(include_content=True) (1회) |
 
-### 최적화 전략
+### 예상 응답 크기
+| Tool | 응답 | 예상 크기 |
+|------|------|----------|
+| save | id, title, categories | ~200자 |
+| search | 5개 결과 | ~1,200자 |
+| list | 카테고리 + 10개 아티클 | ~2,500자 |
+| get | 메타데이터 + summary | ~1,500자 |
+| get (include_content) | + 본문 3000자 | ~4,500자 |
+| ask | 5개 청크 + 출처 | ~5,500자 |
+| delete | boolean | ~10자 |
 
-1. **조건부 응답** (get_article)
-   - summary 있으면 → summary만 반환
-   - summary 없으면 → content_preview(500자) 자동 포함
-
-2. **간소화된 목록** (list_articles)
-   - summary, description, tags 제외
-
-3. **본문만 반환** (read_content)
-   - 메타데이터 제외, 제목 + content만
-   - max_length=3000 (전체 응답 제한)
-
-4. **디버그 로깅**
-   - 위치: `data/mcp_debug.log`
-   - 각 도구 호출 시 응답 크기(chars) 기록
+### 디버그 로깅
+- 위치: `data/mcp_debug.log`
+- 각 도구 호출 시 응답 크기(chars) 기록
 
 ## 플랫폼
 - **PC 전용** (Claude Code, Claude Desktop)
