@@ -18,9 +18,10 @@ class Article(BaseModel):
     published_date: Optional[datetime] = None
     categories: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)
-    summary: Optional[str] = None  # 3-5문장 요약
+    description: Optional[str] = None  # 150자 이내 후킹/소개글
+    summary: Optional[str] = None  # 400-600자, bullet 3-5개, 시사점/배울점 위주
     keywords: Optional[str] = None  # 쉼표 구분 키워드
-    insights: Optional[str] = None  # 핵심 인사이트 (줄바꿈 구분)
+    tags: Optional[str] = None  # 카테고리성 태그 (쉼표 구분)
 
     def to_metadata(self) -> dict:
         """Convert to metadata dict for ChromaDB."""
@@ -35,6 +36,8 @@ class Article(BaseModel):
             "created_at": self.created_at.isoformat(),
             "summary": self.summary or "",
             "keywords": self.keywords or "",
+            "description": self.description or "",
+            "tags": self.tags or "",
         }
 
 

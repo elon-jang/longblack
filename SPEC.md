@@ -75,20 +75,18 @@ Output:
 Input:
   - query: str (필수) - 검색 쿼리
   - category: str (선택) - 카테고리 필터
-  - limit: int (선택, 기본값: 10) - 최대 결과 수
+  - limit: int (선택, 기본값: 5) - 최대 결과 수
 
 Output: list of
   - id: str
   - title: str
   - score: float (0~1, 높을수록 관련성 높음)
-  - url: str
-  - categories: list[str]
   - author: str
-  - excerpt: str (매칭된 청크 일부)
+  - excerpt: str (매칭된 청크 200자)
 ```
 
 ### list_articles
-아티클 목록 조회
+아티클 목록 조회 (간소화된 응답)
 ```
 Input:
   - category: str (선택) - 카테고리 필터
@@ -101,12 +99,12 @@ Output: list of
   - categories: list[str]
   - author: str
   - created_at: str
-  - summary: str
-  - keywords: str
+
+Note: 토큰 최적화를 위해 summary, keywords 제외. 상세 정보는 get_article로 조회.
 ```
 
 ### get_article
-아티클 메타데이터 조회 (본문은 read_content 사용)
+아티클 메타데이터 조회 (조건부 응답으로 read_content 호출 불필요)
 ```
 Input:
   - article_id: str (필수)
@@ -114,7 +112,12 @@ Input:
 Output:
   - id, title, content_length, url, source_type
   - author, published_date, categories, created_at
-  - summary, keywords, insights
+  - description, keywords, tags
+  - summary: str (있을 경우)
+  - content_preview: str (summary 없을 경우, 500자)
+
+Note: summary 또는 content_preview 중 하나가 항상 포함됨.
+      이 응답만으로 충분한 컨텍스트 제공, read_content 연쇄 호출 방지.
 ```
 
 ### get_relevant_chunks
@@ -133,13 +136,16 @@ Output: list of
 ```
 
 ### read_content
-아티클 전체 본문 읽기
+아티클 전체 본문 읽기 (get_article에 summary 없을 때만 사용)
 ```
 Input:
   - article_id: str (필수)
+  - max_length: int (선택, 기본값: 3000) - 최대 길이, 0이면 전체
 
 Output:
-  - str (마크다운 포맷 본문, 요약/인사이트 포함)
+  - str (마크다운 포맷 본문, 메타데이터 포함)
+
+Note: get_article 호출 후 summary가 있으면 이 도구 호출 불필요.
 ```
 
 ### list_categories
@@ -215,12 +221,50 @@ longblack/
 │   └── models.py      # Pydantic 데이터 모델
 ├── data/
 │   ├── chroma/        # Vector DB (프로바이더별 컬렉션)
-│   └── articles.db    # SQLite DB
+│   ├── articles.db    # SQLite DB
+│   └── mcp_debug.log  # 디버그 로그 (도구 호출/응답 크기)
 ├── pyproject.toml
 ├── CLAUDE.md
 ├── SPEC.md
 └── README.md
 ```
+
+## 토큰 최적화
+
+Claude Desktop 토큰 한도(190,000) 대응을 위한 최적화 전략:
+
+### RAG 워크플로우 (권장)
+```
+1. search → 관련 아티클 찾기 (~3,000자)
+2. get_article → 메타데이터 + summary/preview 확인 (~1,500자)
+3. (summary로 충분하면 끝)
+4. get_relevant_chunks → 질문에 관련된 청크만 조회 (~5,000자, 권장)
+5. read_content → 전문 필요시에만 (~3,100자, 비권장)
+```
+
+### 토큰 효율성
+| 시나리오 | 호출 | 예상 토큰 |
+|----------|------|----------|
+| 검색 + 요약 확인 | search → get_article | ~1,500 |
+| 검색 + RAG 답변 | search → get_relevant_chunks | ~2,700 |
+| 검색 + 전문 읽기 | search → get_article → read_content | ~2,500 |
+
+### 최적화 전략
+
+1. **조건부 응답** (get_article)
+   - summary 있으면 → summary만 반환
+   - summary 없으면 → content_preview(500자) 자동 포함
+
+2. **간소화된 목록** (list_articles)
+   - summary, description, tags 제외
+
+3. **본문만 반환** (read_content)
+   - 메타데이터 제외, 제목 + content만
+   - max_length=3000 (전체 응답 제한)
+
+4. **디버그 로깅**
+   - 위치: `data/mcp_debug.log`
+   - 각 도구 호출 시 응답 크기(chars) 기록
 
 ## 플랫폼
 - **PC 전용** (Claude Code, Claude Desktop)

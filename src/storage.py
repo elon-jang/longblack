@@ -55,7 +55,8 @@ class ArticleStorage:
                     created_at TEXT NOT NULL,
                     summary TEXT,
                     keywords TEXT,
-                    insights TEXT
+                    description TEXT,
+                    tags TEXT
                 )
             """)
             conn.execute("""
@@ -65,7 +66,7 @@ class ArticleStorage:
             # Migration: add new columns if they don't exist
             cursor = conn.execute("PRAGMA table_info(articles)")
             columns = {row[1] for row in cursor.fetchall()}
-            for col in ["summary", "keywords", "insights"]:
+            for col in ["summary", "keywords", "description", "tags"]:
                 if col not in columns:
                     conn.execute(f"ALTER TABLE articles ADD COLUMN {col} TEXT")
 
@@ -107,8 +108,8 @@ class ArticleStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO articles
-                (id, title, content, url, source_type, author, published_date, categories, created_at, summary, keywords, insights)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, title, content, url, source_type, author, published_date, categories, created_at, summary, keywords, description, tags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     article.id,
@@ -122,7 +123,8 @@ class ArticleStorage:
                     article.created_at.isoformat(),
                     article.summary,
                     article.keywords,
-                    article.insights,
+                    article.description,
+                    article.tags,
                 ),
             )
             # Update FTS index
@@ -141,7 +143,44 @@ class ArticleStorage:
         category: Optional[str] = None,
         limit: int = 10,
     ) -> list[SearchResult]:
-        """Search articles using semantic similarity."""
+        """Hybrid search: FTS first, then semantic if needed.
+
+        Strategy:
+        1. FTS search for exact keyword matching (good for Korean)
+        2. If FTS results < limit, supplement with semantic search
+        3. Merge results, removing duplicates
+        """
+        search_results: list[SearchResult] = []
+        seen_ids: set[str] = set()
+
+        # Step 1: FTS search (primary for Korean keywords)
+        fts_results = self.fulltext_search(query, category=category, limit=limit)
+        for r in fts_results:
+            if r.article.id not in seen_ids:
+                seen_ids.add(r.article.id)
+                search_results.append(r)
+
+        # Step 2: Semantic search if FTS results are insufficient
+        if len(search_results) < limit:
+            semantic_results = self._semantic_search(
+                query, category=category, limit=limit - len(search_results) + 5
+            )
+            for r in semantic_results:
+                if r.article.id not in seen_ids:
+                    seen_ids.add(r.article.id)
+                    search_results.append(r)
+                    if len(search_results) >= limit:
+                        break
+
+        return search_results[:limit]
+
+    def _semantic_search(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        """Search articles using semantic similarity (ChromaDB)."""
         query_embedding = create_embedding(query)
 
         # Search ChromaDB (filter by category in post-processing)
@@ -272,6 +311,49 @@ class ArticleStorage:
             for name, count in sorted(category_counts.items())
         ]
 
+    def update_metadata(
+        self,
+        article_id: str,
+        description: Optional[str] = None,
+        summary: Optional[str] = None,
+        keywords: Optional[str] = None,
+        tags: Optional[str] = None,
+    ) -> bool:
+        """Update article metadata (description, summary, keywords, tags)."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Build dynamic update query
+            updates = []
+            params = []
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+            if summary is not None:
+                updates.append("summary = ?")
+                params.append(summary)
+            if keywords is not None:
+                updates.append("keywords = ?")
+                params.append(keywords)
+            if tags is not None:
+                updates.append("tags = ?")
+                params.append(tags)
+
+            if not updates:
+                return False
+
+            params.append(article_id)
+            query = f"UPDATE articles SET {', '.join(updates)} WHERE id = ?"
+            cursor = conn.execute(query, params)
+
+            # Update FTS if keywords changed
+            if keywords is not None:
+                conn.execute(
+                    "UPDATE articles_fts SET keywords = ? WHERE id = ?",
+                    (keywords, article_id)
+                )
+
+            conn.commit()
+            return cursor.rowcount > 0
+
     def _row_to_article(self, row: sqlite3.Row) -> Article:
         """Convert SQLite row to Article model."""
         from datetime import datetime
@@ -286,9 +368,10 @@ class ArticleStorage:
             published_date=datetime.fromisoformat(row["published_date"]) if row["published_date"] else None,
             categories=row["categories"].split(",") if row["categories"] else [],
             created_at=datetime.fromisoformat(row["created_at"]),
+            description=row["description"] if "description" in row.keys() else None,
             summary=row["summary"],
             keywords=row["keywords"],
-            insights=row["insights"],
+            tags=row["tags"] if "tags" in row.keys() else None,
         )
 
     def list_articles(

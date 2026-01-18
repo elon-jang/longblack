@@ -103,15 +103,25 @@ OpenAI 사용 시:
 
 | Tool | 설명 | 예시 |
 |------|------|------|
-| `save_article` | URL에서 아티클 저장 | `save_article("https://...", ["ai"], summary="...", keywords="...", insights="...")` |
+| `save_article` | URL에서 아티클 저장 | `save_article("https://...", ["ai"], summary="...", keywords="...")` |
 | `save_pdf` | PDF 파일 저장 | `save_pdf("/path/to/doc.pdf", ["tech"])` |
-| `list_articles` | 아티클 목록 조회 | `list_articles(category="ai", limit=20)` |
-| `search` | 시맨틱 검색 | `search("AI 트렌드", category="ai")` |
-| `get_article` | 메타데이터 조회 | `get_article("uuid-...")` |
-| `get_relevant_chunks` | RAG용 청크 검색 | `get_relevant_chunks("질문", article_id="uuid-...")` |
-| `read_content` | 전체 본문 읽기 | `read_content("uuid-...")` |
+| `list_articles` | 아티클 목록 조회 (간소화) | `list_articles(category="ai", limit=20)` |
+| `search` | 시맨틱 검색 | `search("AI 트렌드", category="ai", limit=5)` |
+| `get_article` | 메타데이터 조회 (summary 또는 content_preview 포함) | `get_article("uuid-...")` |
+| `get_relevant_chunks` | RAG용 청크 검색 | `get_relevant_chunks("질문", article_id="uuid-...", limit=5)` |
+| `read_content` | 전체 본문 읽기 (summary 없을 때만) | `read_content("uuid-...", max_length=3000)` |
 | `list_categories` | 카테고리 목록 | `list_categories()` |
 | `delete_article` | 아티클 삭제 | `delete_article("uuid-...")` |
+
+> **토큰 최적화**: `get_article`이 summary 또는 content_preview(500자)를 자동 포함하므로, 대부분의 경우 `read_content` 호출이 불필요합니다.
+
+### RAG 워크플로우 (권장)
+```
+1. search → 관련 아티클 찾기
+2. get_article → summary/preview 확인 (대부분 여기서 끝)
+3. get_relevant_chunks → 질문 답변용 청크 조회 (권장)
+4. read_content → 전문 필요시에만 (비권장)
+```
 
 ## 사용 예시
 
@@ -156,6 +166,7 @@ ai 카테고리에서 "임베딩" 관련 아티클 찾아줘
 |--------|------|------|
 | ChromaDB | `data/chroma/` | 벡터 임베딩 (프로바이더별 컬렉션) |
 | SQLite | `data/articles.db` | 메타데이터, 전문 검색 |
+| Debug Log | `data/mcp_debug.log` | 도구 호출 로그 (응답 크기 분석) |
 
 ## 개발
 

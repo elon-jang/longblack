@@ -1,9 +1,28 @@
 """MCP Server for Article RAG Plugin."""
 
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
 from fastmcp import FastMCP
 
 from .models import Article
+
+# Debug logging - 절대 경로 사용
+_log_file = Path("/Users/elon/elon/ai/projects/longblack/data/mcp_debug.log")
+_log_file.parent.mkdir(exist_ok=True)
+
+
+def log_tool(msg: str) -> None:
+    """Log with direct file write."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(_log_file, "a", encoding="utf-8") as f:
+        f.write(f"{timestamp} - {msg}\n")
+
+
+# 서버 시작 로그
+log_tool("=== MCP Server Started ===")
 from .storage import ArticleStorage
 from .scraper import scrape_url, extract_pdf
 
@@ -25,18 +44,20 @@ def get_storage() -> ArticleStorage:
 def save_article(
     url: str,
     categories: list[str],
+    description: Optional[str] = None,
     summary: Optional[str] = None,
     keywords: Optional[str] = None,
-    insights: Optional[str] = None,
+    tags: Optional[str] = None,
 ) -> dict:
     """Save an article from a URL.
 
     Args:
         url: The URL of the article to save
         categories: List of categories to tag the article with (e.g., ["ai", "tech"])
-        summary: 3-5 sentence summary (optional, Claude can generate)
+        description: 150자 이내 후킹/소개글 (optional)
+        summary: 400-600자 bullet point 요약, 시사점/배울점 위주 (optional)
         keywords: Comma-separated keywords (optional)
-        insights: Key insights, newline-separated (optional)
+        tags: Category-style tags, comma-separated (optional)
 
     Returns:
         Article ID and title on success
@@ -52,9 +73,10 @@ def save_article(
         author=scraped.author,
         published_date=scraped.published_date,
         categories=categories,
+        description=description,
         summary=summary,
         keywords=keywords,
-        insights=insights,
+        tags=tags,
     )
 
     article_id = storage.save_article(article)
@@ -70,18 +92,20 @@ def save_article(
 def save_pdf(
     file_path: str,
     categories: list[str],
+    description: Optional[str] = None,
     summary: Optional[str] = None,
     keywords: Optional[str] = None,
-    insights: Optional[str] = None,
+    tags: Optional[str] = None,
 ) -> dict:
     """Save an article from a PDF file.
 
     Args:
         file_path: Path to the PDF file
         categories: List of categories to tag the article with
-        summary: 3-5 sentence summary (optional, Claude can generate)
+        description: 150자 이내 후킹/소개글 (optional)
+        summary: 400-600자 bullet point 요약, 시사점/배울점 위주 (optional)
         keywords: Comma-separated keywords (optional)
-        insights: Key insights, newline-separated (optional)
+        tags: Category-style tags, comma-separated (optional)
 
     Returns:
         Article ID and title on success
@@ -96,9 +120,10 @@ def save_pdf(
         author=scraped.author,
         published_date=scraped.published_date,
         categories=categories,
+        description=description,
         summary=summary,
         keywords=keywords,
-        insights=insights,
+        tags=tags,
     )
 
     article_id = storage.save_article(article)
@@ -111,13 +136,13 @@ def save_pdf(
 
 
 @mcp.tool
-def search(query: str, category: Optional[str] = None, limit: int = 10) -> list[dict]:
-    """Search articles using semantic similarity.
+def search(query: str, category: Optional[str] = None, limit: int = 5) -> list[dict]:
+    """Search articles (hybrid: FTS + semantic).
 
     Args:
         query: Search query (natural language)
         category: Optional category to filter by
-        limit: Maximum number of results (default: 10)
+        limit: Maximum number of results (default: 5)
 
     Returns:
         List of matching articles with relevance scores
@@ -125,18 +150,18 @@ def search(query: str, category: Optional[str] = None, limit: int = 10) -> list[
     storage = get_storage()
     results = storage.search(query, category=category, limit=limit)
 
-    return [
+    result = [
         {
             "id": r.article.id,
             "title": r.article.title,
             "score": round(r.score, 3),
-            "url": r.article.url,
-            "categories": r.article.categories,
             "author": r.article.author,
-            "excerpt": r.matched_chunks[0][:500] if r.matched_chunks else r.article.content[:500],
+            "excerpt": (r.matched_chunks[0][:200] if r.matched_chunks else r.article.content[:200]) + "...",
         }
         for r in results
     ]
+    log_tool(f"search: query='{query[:50]}', {len(result)} items, {len(json.dumps(result, ensure_ascii=False))} chars")
+    return result
 
 
 @mcp.tool
@@ -148,18 +173,22 @@ def list_categories() -> list[dict]:
     """
     storage = get_storage()
     categories = storage.list_categories()
-    return [{"name": c.name, "count": c.count} for c in categories]
+    result = [{"name": c.name, "count": c.count} for c in categories]
+    log_tool(f"list_categories: {len(result)} items, {len(json.dumps(result, ensure_ascii=False))} chars")
+    return result
 
 
 @mcp.tool
 def get_article(article_id: str) -> Optional[dict]:
-    """Get article metadata by ID (use read_content for full text).
+    """Get article metadata. Returns summary if exists, otherwise content_preview.
+
+    This single call provides enough context - no need to call read_content afterward.
 
     Args:
         article_id: The article ID
 
     Returns:
-        Article metadata or None if not found
+        Article metadata with summary or content_preview (500 chars)
     """
     storage = get_storage()
     article = storage.get_article(article_id)
@@ -167,7 +196,7 @@ def get_article(article_id: str) -> Optional[dict]:
     if not article:
         return None
 
-    return {
+    result = {
         "id": article.id,
         "title": article.title,
         "content_length": len(article.content),
@@ -177,21 +206,31 @@ def get_article(article_id: str) -> Optional[dict]:
         "published_date": article.published_date.isoformat() if article.published_date else None,
         "categories": article.categories,
         "created_at": article.created_at.isoformat(),
-        "summary": article.summary,
+        "description": article.description,
         "keywords": article.keywords,
-        "insights": article.insights,
+        "tags": article.tags,
     }
+
+    # 조건부 응답: summary 있으면 summary, 없으면 content_preview
+    if article.summary:
+        result["summary"] = article.summary
+    else:
+        result["content_preview"] = article.content[:500] + "..." if len(article.content) > 500 else article.content
+
+    log_tool(f"get_article: id={article_id}, has_summary={bool(article.summary)}, {len(json.dumps(result, ensure_ascii=False))} chars")
+    return result
 
 
 @mcp.tool
-def read_content(article_id: str) -> str:
-    """Read article content as plain text.
+def read_content(article_id: str, max_length: int = 3000) -> str:
+    """Read article content. Use only when get_article lacks summary/content_preview.
 
     Args:
         article_id: The article ID
+        max_length: Maximum total response length (default: 3000 chars). Use 0 for full.
 
     Returns:
-        Article content as formatted text, or error message if not found
+        Article content (metadata excluded - already in get_article)
     """
     storage = get_storage()
     article = storage.get_article(article_id)
@@ -199,24 +238,16 @@ def read_content(article_id: str) -> str:
     if not article:
         return f"Article not found: {article_id}"
 
-    # Format as readable text
-    lines = [
-        f"# {article.title}",
-        "",
-        f"- 카테고리: {', '.join(article.categories)}",
-        f"- 저자: {article.author or '(없음)'}",
-        f"- 출처: {article.url or article.source_type}",
-        f"- 저장일: {article.created_at.strftime('%Y-%m-%d %H:%M')}",
-    ]
+    # 간소화된 응답: 본문만 반환 (메타데이터는 get_article에서 이미 제공)
+    content = article.content
+    total_len = len(content)
 
-    if article.summary:
-        lines.extend(["", "## 요약", article.summary])
+    if max_length > 0 and len(content) > max_length:
+        content = content[:max_length] + f"\n\n... ({total_len - max_length}자 생략)"
 
-    if article.insights:
-        lines.extend(["", "## 핵심 인사이트", article.insights])
-
-    lines.extend(["", "---", "", article.content])
-    return "\n".join(lines)
+    result = f"# {article.title}\n\n{content}"
+    log_tool(f"read_content: id={article_id}, {len(result)} chars (원본 {total_len}자)")
+    return result
 
 
 @mcp.tool
@@ -233,23 +264,23 @@ def list_articles(
         sort_by: Sort field - "created_at", "title", or "published_date" (default: created_at)
 
     Returns:
-        List of articles with metadata
+        List of articles with basic metadata (use get_article for full details)
     """
     storage = get_storage()
     articles = storage.list_articles(category=category, limit=limit, sort_by=sort_by)
 
-    return [
+    result = [
         {
             "id": a.id,
             "title": a.title,
             "categories": a.categories,
             "author": a.author,
             "created_at": a.created_at.isoformat(),
-            "summary": a.summary,
-            "keywords": a.keywords,
         }
         for a in articles
     ]
+    log_tool(f"list_articles: {len(result)} items, {len(json.dumps(result, ensure_ascii=False))} chars")
+    return result
 
 
 @mcp.tool
@@ -258,7 +289,10 @@ def get_relevant_chunks(
     article_id: Optional[str] = None,
     limit: int = 5,
 ) -> list[dict]:
-    """Get relevant chunks for RAG-based question answering.
+    """Primary tool for answering questions about article content.
+
+    Returns only relevant passages (not full article), efficient for RAG.
+    Use this instead of read_content for most questions.
 
     Args:
         query: The question or search query
@@ -269,7 +303,9 @@ def get_relevant_chunks(
         List of relevant text chunks with scores
     """
     storage = get_storage()
-    return storage.get_relevant_chunks(query=query, article_id=article_id, limit=limit)
+    result = storage.get_relevant_chunks(query=query, article_id=article_id, limit=limit)
+    log_tool(f"get_relevant_chunks: query='{query[:50]}', {len(result)} items, {len(json.dumps(result, ensure_ascii=False))} chars")
+    return result
 
 
 @mcp.tool

@@ -45,16 +45,42 @@ Claude MCP 플러그인으로 아티클을 스크랩하여 RAG 기반으로 저�
 - `embeddings.py`: 청킹 및 임베딩 생성 (OpenAI/Local 선택)
 - `models.py`: Pydantic 모델 (Article, SearchResult, ScrapedContent 등)
 
-### MCP Tools
+### MCP Tools 요약
 
-| Tool | 용도 |
-|------|------|
-| `save_article` | URL 저장 (+ summary, keywords, insights) |
-| `save_pdf` | PDF 저장 (+ summary, keywords, insights) |
-| `list_articles` | 아티클 목록 조회 |
-| `search` | 시맨틱 검색 (아티클 찾기) |
-| `get_article` | 메타데이터 조회 |
-| `get_relevant_chunks` | RAG용 청크 검색 |
-| `read_content` | 전체 본문 읽기 |
-| `list_categories` | 카테고리 목록 |
-| `delete_article` | 삭제 |
+| Tool | 설명 | 응답 내용 | limit/max | 예상 크기 |
+|------|------|----------|-----------|----------|
+| `search` | 시맨틱 검색 | id, title, score, author, excerpt(200자) | limit=5 | ~3,000자 |
+| `list_articles` | 목록 조회 | id, title, categories, author, created_at | limit=20 | ~2,000자 |
+| `list_categories` | 카테고리 목록 | name, count | - | ~200자 |
+| `get_article` | 메타데이터 | 전체 메타 + summary 또는 content_preview(500자) | - | ~1,500자 |
+| `read_content` | 본문 읽기 | 제목 + content만 | max=3000 | ~3,100자 |
+| `get_relevant_chunks` | RAG 청크 | article_id, title, content(청크), score | limit=5 | ~5,000자 |
+| `save_article` | URL 저장 | id, title, categories, content_length | - | ~200자 |
+| `save_pdf` | PDF 저장 | id, title, categories, content_length | - | ~200자 |
+| `delete_article` | 삭제 | boolean | - | ~10자 |
+
+### RAG 워크플로우
+
+```
+1. search → 관련 아티클 찾기
+2. get_article → 메타데이터 + summary/preview 확인
+3. (summary로 충분하면 끝)
+4. get_relevant_chunks → 질문에 관련된 청크만 조회 (권장)
+5. read_content → 전문 필요시에만 (비권장)
+```
+
+### 토큰 최적화 (Compacting 방지)
+
+Claude Desktop 토큰 한도(190K) 대응:
+
+| 시나리오 | 호출 | 예상 토큰 |
+|----------|------|----------|
+| 검색 + 요약 확인 | search → get_article | ~1,500 |
+| 검색 + RAG 답변 | search → get_relevant_chunks | ~2,700 |
+| 검색 + 전문 읽기 | search → get_article → read_content | ~2,500 |
+
+**핵심 전략**:
+1. `get_article`: summary 또는 content_preview(500자) 조건부 반환
+2. `list_articles`: summary, description, tags 제외
+3. `read_content`: 메타데이터 제외, 본문만 반환
+4. 디버그 로그: `data/mcp_debug.log`
