@@ -203,3 +203,25 @@ uv run pytest
 ### 임베딩 프로바이더 변경
 - 프로바이더별로 별도 컬렉션 사용 (`articles_local`, `articles_openai`)
 - 기존 데이터는 유지되며, 프로바이더 변경 시 해당 컬렉션의 데이터만 검색됨
+
+## Roadmap
+
+### Phase 1: MCP Tools 통합 (9개 → 6개)
+- [ ] `save`: save_article + save_pdf 통합 (URL/파일 자동 감지)
+- [ ] `list`: list_articles + list_categories 통합
+- [ ] `get`: get_article + read_content 통합 (include_content 옵션)
+- [ ] `ask`: get_relevant_chunks 개선 (출처 정보 추가)
+- [ ] `search`: 기존 유지
+- [ ] `delete`: delete_article 이름 변경
+- [ ] 기존 도구 deprecated 처리 및 제거
+
+### Phase 2: 검색 품질 개선
+- [ ] 쿼리 전처리 개선 (형태소 분석, 불용어 제거)
+- [ ] RRF 스코어링 적용 (제목/FTS/시맨틱 통합)
+- [ ] 다국어 임베딩 모델 검토 (multilingual-e5-small 등)
+- [ ] 동의어 사전 구축 (AI↔인공지능, ML↔머신러닝)
+
+### Phase 3: 사용성 개선
+- [ ] Skills 구현 (/lb:save, /lb:ask 등)
+- [ ] 저장 시 메타데이터 자동 생성 (Agent 활용)
+- [ ] 검색 결과 하이라이팅
