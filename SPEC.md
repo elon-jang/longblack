@@ -203,42 +203,60 @@ longblack/
 
 ## 토큰 최적화
 
-Claude Desktop 토큰 한도(190,000) 대응을 위한 최적화 전략:
+Claude Desktop 토큰 한도(190,000) 대응. Compacting 발생 시 대화 컨텍스트 손실.
 
-### RAG 워크플로우 (권장)
+### 문제 상황 (Before)
 ```
-# 간단한 질문
-ask("9.81파크 비즈니스 모델은?")  # 원샷으로 컨텍스트 획득
-
-# 목록 조회
-list()  # 카테고리 + 아티클 목록 동시 조회
-
-# 상세 조회
-get(article_id)  # summary 포함
-get(article_id, include_content=True)  # 본문 필요시
+# 실제 로그 - RAG 질문 시 연쇄 호출
+search: 1,171 chars
+get_article: 906 chars (has_summary=True인데도)
+read_content: 3,063 chars × 3회 = 9,189 chars  ← 중복 호출 문제
+─────────────────────────────────────────────
+총: ~11,266 chars (1회 질문에)
 ```
 
-### 토큰 효율성 (Before vs After)
-| 시나리오 | Before | After |
-|----------|--------|-------|
-| RAG 질문 | search → get_relevant_chunks (2회) | ask (1회) |
-| 목록 조회 | list_categories + list_articles (2회) | list (1회) |
-| 본문 읽기 | get_article → read_content (2회) | get(include_content=True) (1회) |
+### 해결 (After)
+```
+# 단일 호출로 동일 결과
+ask: ~5,500 chars  ← 51% 절감
+```
 
-### 예상 응답 크기
-| Tool | 응답 | 예상 크기 |
-|------|------|----------|
+### 호출 횟수 비교
+| 시나리오 | Before | After | 절감 |
+|----------|--------|-------|------|
+| RAG 질문 | search → get_article → read_content (3회+) | ask (1회) | 66%↓ |
+| 목록 조회 | list_categories + list_articles (2회) | list (1회) | 50%↓ |
+| 상세 조회 | get_article → read_content (2회) | get (1회) | 50%↓ |
+
+### 응답 크기 비교
+| 시나리오 | Before | After | 절감 |
+|----------|--------|-------|------|
+| RAG 질문 | ~11,000자 | ~5,500자 | 50%↓ |
+| 목록 조회 | ~4,000자 | ~2,500자 | 37%↓ |
+| 상세+본문 | ~4,500자 | ~4,500자 | 동일 |
+
+### 도구별 응답 크기
+| Tool | 응답 내용 | 예상 크기 |
+|------|----------|----------|
 | save | id, title, categories | ~200자 |
-| search | 5개 결과 | ~1,200자 |
+| search | 5개 결과 (id, title, score, excerpt) | ~1,200자 |
 | list | 카테고리 + 10개 아티클 | ~2,500자 |
 | get | 메타데이터 + summary | ~1,500자 |
-| get (include_content) | + 본문 3000자 | ~4,500자 |
-| ask | 5개 청크 + 출처 | ~5,500자 |
+| get (include_content=true) | + 본문 3000자 | ~4,500자 |
+| ask | 5개 청크 + 출처 목록 | ~5,500자 |
 | delete | boolean | ~10자 |
+
+### 핵심 최적화 전략
+
+1. **연쇄 호출 제거**: 2-3회 → 1회 통합
+2. **조건부 응답**: summary 있으면 본문 불포함
+3. **강제 트렁케이션**: 본문 3,000자 제한
+4. **중복 제거**: 출처 목록 dedupe
 
 ### 디버그 로깅
 - 위치: `data/mcp_debug.log`
-- 각 도구 호출 시 응답 크기(chars) 기록
+- 형식: `timestamp - tool: query, N items, N chars`
+- 용도: 응답 크기 모니터링, 병목 식별
 
 ## 플랫폼
 - **PC 전용** (Claude Code, Claude Desktop)

@@ -112,17 +112,26 @@ OpenAI 사용 시:
 
 > **연쇄 호출 최소화**: 기존 9개 → 6개 통합. 대부분 1회 호출로 완료.
 
+### 토큰 절감 효과
+
+| 시나리오 | Before | After | 절감 |
+|----------|--------|-------|------|
+| RAG 질문 | ~11,000자 (3회+) | ~5,500자 (1회) | **50%↓** |
+| 목록 조회 | ~4,000자 (2회) | ~2,500자 (1회) | **37%↓** |
+| 상세 조회 | ~4,500자 (2회) | ~4,500자 (1회) | 호출↓ |
+
+> Claude Desktop 토큰 한도(190K) 대응. Compacting 방지로 대화 컨텍스트 유지.
+
 ### 워크플로우 예시
 ```
-# RAG 질문 → 1회 호출
+# RAG 질문 → 1회 호출 (기존: search → get_article → read_content)
 ask("9.81파크 비즈니스 모델은?")
 
-# 목록 조회 → 1회 호출 (카테고리 + 아티클)
+# 목록 조회 → 1회 호출 (기존: list_categories + list_articles)
 list()
 
-# 상세 조회 → 1회 호출
-get(article_id)  # summary 포함
-get(article_id, include_content=True)  # 본문 필요시
+# 상세 조회 → 1회 호출 (기존: get_article → read_content)
+get(article_id, include_content=True)
 ```
 
 ## 사용 예시

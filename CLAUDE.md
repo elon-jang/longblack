@@ -81,10 +81,24 @@ get(article_id, include_content=True)
 
 ### 토큰 최적화 (Compacting 방지)
 
-| 시나리오 | Before | After |
-|----------|--------|-------|
-| RAG 질문 | search → get_relevant_chunks (2회) | ask (1회) |
-| 목록 조회 | list_categories + list_articles (2회) | list (1회) |
-| 본문 읽기 | get_article → read_content (2회) | get(include_content=True) (1회) |
+Claude Desktop 토큰 한도: 190,000
+
+**문제**: 기존 구조에서 RAG 질문 시 연쇄 호출로 ~11,000자 소비
+```
+search(1,171) → get_article(906) → read_content(3,063) × 3회
+```
+
+**해결**: 도구 통합으로 호출 횟수 및 응답 크기 감소
+
+| 시나리오 | Before | After | 절감 |
+|----------|--------|-------|------|
+| RAG 질문 | ~11,000자 (3회+) | ~5,500자 (1회) | 50%↓ |
+| 목록 조회 | ~4,000자 (2회) | ~2,500자 (1회) | 37%↓ |
+| 상세+본문 | ~4,500자 (2회) | ~4,500자 (1회) | 호출↓ |
+
+**핵심 전략**:
+- 연쇄 호출 제거 (2-3회 → 1회)
+- 조건부 응답 (summary 있으면 본문 불포함)
+- 강제 트렁케이션 (본문 3,000자 제한)
 
 디버그 로그: `data/mcp_debug.log`
