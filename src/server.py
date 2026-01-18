@@ -180,15 +180,16 @@ def list_categories() -> list[dict]:
 
 @mcp.tool
 def get_article(article_id: str) -> Optional[dict]:
-    """Get article metadata. Returns summary if exists, otherwise content_preview.
+    """Get article metadata with summary. SUFFICIENT for answering questions.
 
-    This single call provides enough context - no need to call read_content afterward.
+    IMPORTANT: Do NOT call read_content after this. The summary/content_preview
+    included here is enough to answer most questions about the article.
 
     Args:
         article_id: The article ID
 
     Returns:
-        Article metadata with summary or content_preview (500 chars)
+        Article metadata with summary (400-600 chars) or content_preview (500 chars)
     """
     storage = get_storage()
     article = storage.get_article(article_id)
@@ -223,13 +224,16 @@ def get_article(article_id: str) -> Optional[dict]:
 
 @mcp.tool
 def read_content(article_id: str) -> str:
-    """Read article content (max 3000 chars). Use only when get_article lacks summary.
+    """Read full article content. RARELY needed - get_article summary is usually enough.
+
+    Only use when: (1) get_article has no summary AND (2) user explicitly requests full text.
+    Do NOT call this just to "get more detail" - use get_relevant_chunks instead.
 
     Args:
         article_id: The article ID
 
     Returns:
-        Article content truncated to 3000 chars
+        Article content (max 3000 chars)
     """
     storage = get_storage()
     article = storage.get_article(article_id)
