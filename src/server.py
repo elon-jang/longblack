@@ -222,15 +222,14 @@ def get_article(article_id: str) -> Optional[dict]:
 
 
 @mcp.tool
-def read_content(article_id: str, max_length: int = 3000) -> str:
-    """Read article content. Use only when get_article lacks summary/content_preview.
+def read_content(article_id: str) -> str:
+    """Read article content (max 3000 chars). Use only when get_article lacks summary.
 
     Args:
         article_id: The article ID
-        max_length: Maximum total response length (default: 3000 chars). Use 0 for full.
 
     Returns:
-        Article content (metadata excluded - already in get_article)
+        Article content truncated to 3000 chars
     """
     storage = get_storage()
     article = storage.get_article(article_id)
@@ -238,29 +237,30 @@ def read_content(article_id: str, max_length: int = 3000) -> str:
     if not article:
         return f"Article not found: {article_id}"
 
-    # 간소화된 응답: 본문만 반환 (메타데이터는 get_article에서 이미 제공)
+    # 강제 트렁케이션: 항상 3000자 제한
+    max_length = 3000
     content = article.content
     total_len = len(content)
 
-    if max_length > 0 and len(content) > max_length:
+    if len(content) > max_length:
         content = content[:max_length] + f"\n\n... ({total_len - max_length}자 생략)"
 
     result = f"# {article.title}\n\n{content}"
-    log_tool(f"read_content: id={article_id}, {len(result)} chars (원본 {total_len}자)")
+    log_tool(f"read_content: id={article_id}, {len(result)} chars (원본 {total_len}자, 제한 {max_length})")
     return result
 
 
 @mcp.tool
 def list_articles(
     category: Optional[str] = None,
-    limit: int = 20,
+    limit: int = 10,
     sort_by: str = "created_at",
 ) -> list[dict]:
     """List articles with optional filtering.
 
     Args:
         category: Filter by category (optional)
-        limit: Maximum number of results (default: 20)
+        limit: Maximum number of results (default: 10)
         sort_by: Sort field - "created_at", "title", or "published_date" (default: created_at)
 
     Returns:

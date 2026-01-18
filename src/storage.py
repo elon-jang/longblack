@@ -143,24 +143,32 @@ class ArticleStorage:
         category: Optional[str] = None,
         limit: int = 10,
     ) -> list[SearchResult]:
-        """Hybrid search: FTS first, then semantic if needed.
+        """Hybrid search: title + FTS + semantic.
 
         Strategy:
-        1. FTS search for exact keyword matching (good for Korean)
-        2. If FTS results < limit, supplement with semantic search
-        3. Merge results, removing duplicates
+        1. Title search (handles cases like "9.81파크" where FTS fails)
+        2. FTS search for exact keyword matching (good for Korean)
+        3. Semantic search to supplement results
         """
         search_results: list[SearchResult] = []
         seen_ids: set[str] = set()
 
-        # Step 1: FTS search (primary for Korean keywords)
-        fts_results = self.fulltext_search(query, category=category, limit=limit)
-        for r in fts_results:
+        # Step 1: Title search (fallback for numeric/special queries)
+        title_results = self._title_search(query, category=category, limit=limit)
+        for r in title_results:
             if r.article.id not in seen_ids:
                 seen_ids.add(r.article.id)
                 search_results.append(r)
 
-        # Step 2: Semantic search if FTS results are insufficient
+        # Step 2: FTS search (primary for Korean keywords)
+        if len(search_results) < limit:
+            fts_results = self.fulltext_search(query, category=category, limit=limit)
+            for r in fts_results:
+                if r.article.id not in seen_ids:
+                    seen_ids.add(r.article.id)
+                    search_results.append(r)
+
+        # Step 3: Semantic search if results are still insufficient
         if len(search_results) < limit:
             semantic_results = self._semantic_search(
                 query, category=category, limit=limit - len(search_results) + 5
@@ -173,6 +181,40 @@ class ArticleStorage:
                         break
 
         return search_results[:limit]
+
+    def _title_search(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        """Search by title using LIKE (handles special chars like 9.81)."""
+        # 쿼리에서 핵심 단어 추출 (숫자, 한글 포함)
+        import re
+        keywords = re.findall(r'[\d.]+|[가-힣]+', query)
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            results = []
+
+            for keyword in keywords[:3]:  # 최대 3개 키워드로 검색
+                if len(keyword) < 2:
+                    continue
+                sql = "SELECT * FROM articles WHERE title LIKE ?"
+                params = [f"%{keyword}%"]
+                if category:
+                    sql += " AND categories LIKE ?"
+                    params.append(f"%{category}%")
+                sql += " LIMIT ?"
+                params.append(limit)
+
+                rows = conn.execute(sql, params).fetchall()
+                for row in rows:
+                    article = self._row_to_article(row)
+                    if not any(r.article.id == article.id for r in results):
+                        results.append(SearchResult(article=article, score=1.0))
+
+        return results[:limit]
 
     def _semantic_search(
         self,
@@ -229,6 +271,15 @@ class ArticleStorage:
 
         return search_results
 
+    def _sanitize_fts_query(self, query: str) -> str:
+        """Sanitize query for FTS5 - remove special characters that cause syntax errors."""
+        import re
+        # FTS5 특수문자 제거: . * " ( ) - : ^ 등
+        sanitized = re.sub(r'[.*"()\-:^]', ' ', query)
+        # 연속 공백 제거
+        sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+        return sanitized if sanitized else query
+
     def fulltext_search(
         self,
         query: str,
@@ -236,6 +287,9 @@ class ArticleStorage:
         limit: int = 10,
     ) -> list[SearchResult]:
         """Full-text search using SQLite FTS5."""
+        # FTS5 쿼리 정제
+        query = self._sanitize_fts_query(query)
+
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
